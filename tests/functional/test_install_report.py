@@ -93,6 +93,62 @@ def test_install_report_index(script: PipTestEnvironment, tmp_path: Path) -> Non
 
 
 @pytest.mark.network
+def test_install_report_direct_index(script: PipTestEnvironment, shared_data: TestData, tmp_path: Path) -> None:
+    """Compare report for sdist obtained via direct url and sdist obtained from index"""
+    report_direct_path = tmp_path / "report.json"
+    package = shared_data.root / "packages" / "mypy-0.782-py3-none-any.whl"
+    script.pip(
+        "install",
+        "--dry-run",
+        f"{package}[dmypy]",
+        "--report",
+        str(report_direct_path),
+    )
+    report_direct = json.loads(report_direct_path.read_text())
+
+    report_index_path = tmp_path / "report.json"
+    script.pip(
+        "install",
+        "--dry-run",
+        f"mypy[dmypy]==0.782",
+        "--report",
+        str(report_index_path),
+    )
+    report_index = json.loads(report_index_path.read_text())
+
+    assert len(report_direct["install"]) == len(report_index["install"])
+    for (direct, index) in zip(report_direct["install"], report_index["install"]):
+        name = direct['metadata']['name']
+        assert name == index['metadata']['name']
+        if name != "mypy":
+            continue
+
+        assert direct["is_direct"] == True
+        assert index["is_direct"] == False
+        del direct["is_direct"]
+        del index["is_direct"]
+
+        assert direct["download_info"]["url"].startswith("file://")
+        assert index["download_info"]["url"].startswith("https://")
+        del direct["download_info"]["url"]
+        del index ["download_info"]["url"]
+
+        # TODO: Is this intended behaviour? 'hash' is equal, 'hashes' is missing
+        # in direct installs.
+        # assert "hashes" not in direct["download_info"]["archive_info"]
+        # assert "hashes" in index["download_info"]["archive_info"]
+        # del index["download_info"]["archive_info"]["hashes"]
+
+        # TODO: this would be required to pass with pip 23.0.1, see
+        # https://github.com/pypa/pip/issues/11946
+        # assert "requested_extras" not in direct
+        # assert index["requested_extras"] == ['dmypy']
+        # del index["requested_extras"]
+
+        assert direct == index
+
+
+@pytest.mark.network
 def test_install_report_vcs_and_wheel_cache(
     script: PipTestEnvironment, tmp_path: Path
 ) -> None:
